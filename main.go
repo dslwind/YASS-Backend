@@ -48,7 +48,7 @@ func remote(c *gin.Context) {
         local_dir := mount_dir + dir
         file, err := os.Open(local_dir)
         if err != nil {
-                c.AbortWithStatus(404)
+                c.AbortWithStatus(403)
                 return
         }
         defer file.Close()
@@ -204,6 +204,11 @@ func main() {
 
         // 设置路由和文件流传输处理
         r.GET("/stream", remote)
+
+        // 添加 NoRoute 处理器，处理所有未定义的路由
+        r.NoRoute(func(c *gin.Context) {
+                c.AbortWithStatus(403)
+        })
 
         // 启动服务，监听指定端口
         r.Run(":" + port)
