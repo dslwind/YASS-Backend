@@ -49,6 +49,7 @@ Mount:
 # 服务器配置
 Server:
   port: "12180"
+  rateLimit: 100 # Mbps, default 250
 ```
 
 此处 **目前** 可参考 [Go_stream](https://github.com/MisakaFxxk/Go_stream) 的相关配置进行操作。
