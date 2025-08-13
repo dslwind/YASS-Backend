@@ -61,20 +61,17 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Create GitHub Release
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: actions/create-release@v1
+      - name: Create/Update Release
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ env.VERSION }}
-          release_name: "Release ${{ env.VERSION }}"
+          # `files` 字段可以让你上传构建产物
+          # files: my-artifact.zip 
           body: |
             正式发布版本:
             - Branch: ${{ github.ref_name }}
             - Commit: ${{ github.sha }}
-          draft: false
-          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Linux-amd64 binary to Release
         env:
