@@ -36,7 +36,7 @@ jobs:
           go build -o output/YASS-${{ matrix.os.os-name }}/YASS-${{ matrix.os.os-name }} main.go
 
       - name: Upload binaries as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os.os-name }}-binary
           path: output/YASS-${{ matrix.os.os-name }}/YASS-${{ matrix.os.os-name }}
