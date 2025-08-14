@@ -14,7 +14,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"golang.org/x/time/rate" // New import for rate limiting
 )
 
 // Add this after the imports
@@ -35,77 +34,10 @@ var (
 	mount_dir    string
 	port         string
 	rateLimit    int64
+	blacklist    []string // 新增：用于存储黑名单的全局变量
 )
 
-// ---- START: New code for Request Frequency Limiting ----
-
-// visitor struct holds the rate limiter and last seen time for each client.
-type visitor struct {
-	limiter  *rate.Limiter
-	lastSeen time.Time
-}
-
-// Global map to store visitors' rate limiters.
-// The key is the client's IP address.
-var visitors = make(map[string]*visitor)
-var visitorsMu sync.Mutex
-
-// requestLimitMiddleware provides rate limiting based on IP address.
-func requestLimitMiddleware() gin.HandlerFunc {
-	// These values can be moved to the config file if more flexibility is needed.
-	// r: requests per second.
-	// b: burst size.
-	// Here we allow 2 requests per second with a burst of 10.
-	// This is suitable for streaming where a client might make several quick requests
-	// at the beginning, but prevents sustained high-frequency requests.
-	r := rate.Limit(2)
-	b := 10
-
-	return func(c *gin.Context) {
-		ip := c.ClientIP()
-
-		visitorsMu.Lock()
-		v, exists := visitors[ip]
-		if !exists {
-			limiter := rate.NewLimiter(r, b)
-			v = &visitor{limiter: limiter}
-			visitors[ip] = v
-		}
-		// Update the last seen time for the visitor on every request.
-		v.lastSeen = time.Now()
-		visitorsMu.Unlock()
-
-		// Check if the request is allowed. If not, abort with a 429 status.
-		if !v.limiter.Allow() {
-			c.AbortWithStatus(http.StatusTooManyRequests)
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// cleanupVisitors runs in a background goroutine to remove old entries
-// from the visitors map, preventing a memory leak.
-func cleanupVisitors() {
-	for {
-		// Wait for a while before the next cleanup cycle.
-		time.Sleep(10 * time.Minute)
-
-		visitorsMu.Lock()
-		for ip, v := range visitors {
-			// If a visitor hasn't been seen for 15 minutes, remove them from the map.
-			if time.Since(v.lastSeen) > 15*time.Minute {
-				delete(visitors, ip)
-			}
-		}
-		visitorsMu.Unlock()
-	}
-}
-
-// ---- END: New code for Request Frequency Limiting ----
-
-// 速率限制器 (This is for bandwidth limiting)
+// 速率限制器
 type rateLimiter struct {
 	bytesPerSecond int64
 	lastCheck      time.Time
@@ -148,8 +80,17 @@ func remote(c *gin.Context) {
 	MediaSourceId := c.Query("MediaSourceId")
 	dir := c.Query("dir")
 	key := c.Query("key")
+	userid := c.Query("UserId") // 新增：获取 UserId
 
-	// 鉴权逻辑
+	// 新增：黑名单鉴权逻辑
+	for _, blockedUser := range blacklist {
+		if userid == blockedUser {
+			c.AbortWithStatus(403)
+			return
+		}
+	}
+
+	// 原有鉴权逻辑
 	raw_string := "dir=" + dir + "&MediaSourceId=" + MediaSourceId + "&remote_token=" + remote_token
 	hash_1 := md5.Sum([]byte(raw_string))
 	hash := hex.EncodeToString(hash_1[:])
@@ -312,6 +253,7 @@ func main() {
 	remote_token = viper.GetString("Remote.apikey")
 	mount_dir = viper.GetString("Mount.dir")
 	port = viper.GetString("Server.port")
+	blacklist = viper.GetStringSlice("Remote.blacklist") // 新增：读取黑名单配置
 
 	// 读取速率限制，如果未设置则使用默认值
 	if !viper.IsSet("Server.rateLimit") {
@@ -320,22 +262,12 @@ func main() {
 		rateLimit = viper.GetInt64("Server.rateLimit")
 	}
 
-	// Start the background goroutine to clean up old visitors.
-	go cleanupVisitors()
-
 	// 初始化 Gin 引擎
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
-	// Trust all proxies by default. This is needed to get the correct
-	// client IP when running behind a reverse proxy like Nginx.
-	r.SetTrustedProxies(nil)
-
 	// 添加跨域中间件
 	r.Use(corsMiddleware())
-
-	// Add the request rate limiting middleware to all routes.
-	r.Use(requestLimitMiddleware())
 
 	// 设置路由和文件流传输处理
 	r.GET("/stream", remote)
