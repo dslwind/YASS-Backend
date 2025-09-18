@@ -375,7 +375,7 @@ func streamFile(file *os.File, c *gin.Context, start, end int64) {
 
 	go func() {
 		defer wg.Done()
-		buffer := bufferPool.Get().([]byte)
+		buffer := bufferPool.Get().(*[]byte)
 		defer bufferPool.Put(buffer)
 
 		limiter := newRateLimiter(rateLimit)
@@ -385,12 +385,12 @@ func streamFile(file *os.File, c *gin.Context, start, end int64) {
 		fmt.Printf("[%s] 开始传输数据 - 客户端IP: %s, 总字节数: %d\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), totalBytes)
 
 		for totalBytes > 0 {
-			readSize := int64(len(buffer))
+			readSize := int64(len(*buffer))
 			if totalBytes < readSize {
 				readSize = totalBytes
 			}
 
-			n, err := file.Read(buffer[:readSize])
+			n, err := file.Read((*buffer)[:readSize])
 			if err != nil && err != io.EOF {
 				fmt.Printf("[%s] 文件读取错误 - 客户端IP: %s, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), err)
 				c.AbortWithStatus(500)
@@ -403,7 +403,7 @@ func streamFile(file *os.File, c *gin.Context, start, end int64) {
 
 			limiter.limit(n) // 应用速率限制
 
-			_, writeErr := c.Writer.Write(buffer[:n])
+			_, writeErr := c.Writer.Write((*buffer)[:n])
 			if writeErr != nil {
 				// 如果客户端断开连接
 				fmt.Printf("[%s] 客户端连接断开 - 客户端IP: %s, 已发送字节: %d, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), bytesSent, writeErr)
