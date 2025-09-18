@@ -1,12 +1,14 @@
+# Go specific files and directories
 # If you prefer the allow list template instead of the deny list, see community template:
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+*.app
 
 # Test binary, built with `go test -c`
 *.test
@@ -21,5 +23,56 @@
 go.work
 go.work.sum
 
-# env file
+# Environment files
 .env
+.env.local
+.env.production
+
+# Build outputs
+build/
+bin/
+dist/
+
+# Configuration files (should be created locally)
+config.yaml
+config.local.yaml
+config.prod.yaml
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# Log files
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Coverage output
+coverage.txt
+coverage.html
+
+# Benchmark output
+bench.txt
+
+# Docker
+docker-compose.override.yml
+
+# Development tools
+.air*
+
+
+test

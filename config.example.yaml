@@ -1,0 +1,20 @@
+# YASS-Backend 配置文件示例
+
+# 目录头配置
+mount: 
+  dir: "/mnt/media"  # 挂载目录前缀
+
+# 服务器配置
+server:
+  port: "12180"      # 服务监听端口
+  rateLimit: 250     # 带宽限制 (Mbps)
+
+# 安全配置
+security:
+  # AES密钥：必须是32位十六进制字符串 (16字节)
+  # 可以使用以下命令生成：openssl rand -hex 16
+  aes_key: "a1b2c3d4e5f6789012345678901234ab"
+  
+  # HMAC密钥：有效的十六进制字符串
+  # 可以使用以下命令生成：openssl rand -hex 32
+  hmac_secret_key: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
