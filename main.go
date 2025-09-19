@@ -607,20 +607,20 @@ func main() {
 	tempLogger.Info("安全配置已加载")
 
 	// 读取速率限制，如果未设置则使用默认值
-	if !viper.IsSet("server.rateLimit") {
+	if !viper.IsSet("server.rate_limit") {
 		rateLimit = DefaultRateLimit
 	} else {
-		rateLimit = viper.GetInt64("server.rateLimit")
+		rateLimit = viper.GetInt64("server.rate_limit")
 	}
 
 	tempLogger.Infof("速率限制设置为: %d Mbps", rateLimit)
 
 	// 读取请求频率限制配置
-	if viper.IsSet("server.requestLimit") {
-		requestsPerSecond = rate.Limit(viper.GetFloat64("server.requestLimit.requestsPerSecond"))
-		burstSize = viper.GetInt("server.requestLimit.burstSize")
-		cleanupInterval = time.Duration(viper.GetInt("server.requestLimit.cleanupInterval")) * time.Minute
-		expireDuration = time.Duration(viper.GetInt("server.requestLimit.expireDuration")) * time.Minute
+	if viper.IsSet("server.request_limit") {
+		requestsPerSecond = rate.Limit(viper.GetFloat64("server.request_limit.requests_per_second"))
+		burstSize = viper.GetInt("server.request_limit.burst_size")
+		cleanupInterval = time.Duration(viper.GetInt("server.request_limit.cleanup_interval")) * time.Minute
+		expireDuration = time.Duration(viper.GetInt("server.request_limit.expire_duration")) * time.Minute
 	} else {
 		// 默认值
 		requestsPerSecond = 2
@@ -633,10 +633,10 @@ func main() {
 		float64(requestsPerSecond), burstSize, cleanupInterval, expireDuration)
 
 	// 读取签名有效时间配置（防止重放攻击），默认值为300秒（5分钟）
-	if !viper.IsSet("security.signatureValidityPeriod") {
+	if !viper.IsSet("security.signature_validity_period") {
 		signatureValidityPeriod = 300
 	} else {
-		signatureValidityPeriod = viper.GetInt64("security.signatureValidityPeriod")
+		signatureValidityPeriod = viper.GetInt64("security.signature_validity_period")
 	}
 
 	tempLogger.Infof("签名有效期设置为: %d 秒", signatureValidityPeriod)
@@ -645,9 +645,9 @@ func main() {
 	logConfig := logger.Config{
 		Level:      viper.GetString("log.level"),
 		File:       viper.GetString("log.file"),
-		MaxSize:    viper.GetInt("log.maxSize"),
-		MaxBackups: viper.GetInt("log.maxBackups"),
-		MaxAge:     viper.GetInt("log.maxAge"),
+		MaxSize:    viper.GetInt("log.max_size"),
+		MaxBackups: viper.GetInt("log.max_backups"),
+		MaxAge:     viper.GetInt("log.max_age"),
 		Compress:   viper.GetBool("log.compress"),
 	}
 

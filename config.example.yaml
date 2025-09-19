@@ -7,13 +7,13 @@ mount:
 # 服务器配置
 server:
   port: "12180"      # 服务监听端口
-  rateLimit: 100     # 带宽限制 (Mbps)
+  rate_limit: 100    # 带宽限制 (Mbps)
   # 请求频率限制配置
-  requestLimit:
-    requestsPerSecond: 2    # 每秒请求数限制
-    burstSize: 10           # 突发请求大小
-    cleanupInterval: 10     # 清理间隔（分钟）
-    expireDuration: 15      # 过期时间（分钟）
+  request_limit:
+    requests_per_second: 2    # 每秒请求数限制
+    burst_size: 10            # 突发请求大小
+    cleanup_interval: 10      # 清理间隔（分钟）
+    expire_duration: 15       # 过期时间（分钟）
 
 # 安全配置
 security:
@@ -26,13 +26,13 @@ security:
   hmac_secret_key: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
   
   # 签名有效时间（秒）：防止重放攻击的时间窗口，默认300秒（5分钟）
-  signatureValidityPeriod: 300
+  signature_validity_period: 300
 
 # 日志配置
 log:
   level: "info"           # 日志级别: trace, debug, info, warn, error, fatal, panic
   file: "logs/app.log"    # 日志文件路径
-  maxSize: 10             # 每个日志文件的最大大小(MB)
-  maxBackups: 5           # 保留的旧日志文件最大个数
-  maxAge: 30              # 保留旧日志文件的最大天数
+  max_size: 10            # 每个日志文件的最大大小(MB)
+  max_backups: 5          # 保留的旧日志文件最大个数
+  max_age: 30             # 保留旧日志文件的最大天数
   compress: true          # 是否压缩旧日志文件
