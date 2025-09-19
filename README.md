@@ -19,6 +19,16 @@ YASS 项目的后端程序。其完成的工作是从本地目录找到前端请
 
 **目前** 可以搭配原版前端使用，也可以搭配 [YASS-Frontend](https://github.com/FacMata/YASS-Frontend) 使用。
 
+## 功能特性
+
+- 分片传输：支持大文件高效流式读取
+- 并发缓存池：提升多用户访问性能
+- 连接回收机制：减少资源消耗
+- 可配置的挂载目录与速率限制
+- AES-GCM加密路径和HMAC-SHA256签名验证，增强安全性
+- 请求频率限制，防止滥用
+- 详细的日志记录系统，支持文件输出、轮转和压缩
+
 ## 如何配置
 
 #### 1. 下载最新 Release
@@ -28,21 +38,41 @@ YASS 项目的后端程序。其完成的工作是从本地目录找到前端请
 #### 2. 配置 `config.yaml`
 
 ```yaml
+# YASS-Backend 配置文件示例
+
 # 目录头配置
-Mount: 
-  dir: "/mnt"
+mount: 
+  dir: "/mnt/media"  # 挂载目录前缀
 
 # 服务器配置
-Server:
-  port: "12180"
-  rateLimit: 100 # Mbps, default 250
+server:
+  port: "12180"      # 服务监听端口
+  rateLimit: 100     # 带宽限制 (Mbps)
+  # 请求频率限制配置
+  requestLimit:
+    requestsPerSecond: 2    # 每秒请求数限制
+    burstSize: 10           # 突发请求大小
+    cleanupInterval: 10     # 清理间隔（分钟）
+    expireDuration: 15      # 过期时间（分钟）
 
 # 安全配置
-Security:
+security:
   # AES密钥：必须是32位十六进制字符串 (16字节)
+  # 可以使用以下命令生成：openssl rand -hex 16
   aes_key: "a1b2c3d4e5f6789012345678901234ab"
+  
   # HMAC密钥：有效的十六进制字符串
+  # 可以使用以下命令生成：openssl rand -hex 32
   hmac_secret_key: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+# 日志配置
+log:
+  level: "info"           # 日志级别: trace, debug, info, warn, error, fatal, panic
+  file: "logs/app.log"    # 日志文件路径
+  maxSize: 10             # 每个日志文件的最大大小(MB)
+  maxBackups: 5           # 保留的旧日志文件最大个数
+  maxAge: 30              # 保留旧日志文件的最大天数
+  compress: true          # 是否压缩旧日志文件
 ```
 
 #### 3. 运行程序
