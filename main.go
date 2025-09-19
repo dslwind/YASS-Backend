@@ -15,23 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"YASS-Backend/pkg/logger"
+
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"golang.org/x/time/rate"
 )
-
-// 自定义日志格式化函数
-func logFormat(params gin.LogFormatterParams) string {
-	return fmt.Sprintf("[%s] | %s | %d | %s | %s | %s | %s\n",
-		params.TimeStamp.Format("2006-01-02 15:04:05"),
-		params.ClientIP,
-		params.StatusCode,
-		params.Latency,
-		params.Method,
-		params.Path,
-		params.ErrorMessage,
-	)
-}
 
 // Add this after the imports
 const (
@@ -54,6 +44,9 @@ var (
 	// 新增安全配置
 	aesKey     []byte
 	hmacSecret []byte
+
+	// 全局日志实例
+	log *logger.Logger
 )
 
 // ---- START: New code for Request Frequency Limiting ----
@@ -97,6 +90,9 @@ func requestLimitMiddleware() gin.HandlerFunc {
 		// Check if the request is allowed. If not, abort with a 429 status.
 		if !v.limiter.Allow() {
 			c.AbortWithStatus(http.StatusTooManyRequests)
+			if log != nil {
+				log.Warnf("Too many requests from IP: %s", ip)
+			}
 			return
 		}
 
@@ -164,18 +160,24 @@ func (rl *rateLimiter) limit(n int) {
 
 // AES-GCM解密函数
 func aesGcmDecrypt(encryptedHex string) (string, error) {
-	fmt.Printf("[%s] 开始AES-GCM解密，加密数据长度: %d\n", time.Now().Format("2006-01-02 15:04:05"), len(encryptedHex))
+	if log != nil {
+		log.Debugf("开始AES-GCM解密，加密数据长度: %d", len(encryptedHex))
+	}
 
 	// 将十六进制字符串转换为字节
 	encryptedData, err := hex.DecodeString(encryptedHex)
 	if err != nil {
-		fmt.Printf("[%s] 十六进制解码失败: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
+		if log != nil {
+			log.Errorf("十六进制解码失败: %v", err)
+		}
 		return "", err
 	}
 
 	// 检查数据长度
 	if len(encryptedData) < 12 { // nonce长度为12字节
-		fmt.Printf("[%s] 加密数据长度无效: %d\n", time.Now().Format("2006-01-02 15:04:05"), len(encryptedData))
+		if log != nil {
+			log.Error("加密数据长度无效: %d", len(encryptedData))
+		}
 		return "", fmt.Errorf("invalid encrypted data length")
 	}
 
@@ -185,7 +187,9 @@ func aesGcmDecrypt(encryptedHex string) (string, error) {
 
 	// tag长度为16字节
 	if len(tagAndCiphertext) < 16 {
-		fmt.Printf("[%s] 密文和标签长度无效: %d\n", time.Now().Format("2006-01-02 15:04:05"), len(tagAndCiphertext))
+		if log != nil {
+			log.Error("密文和标签长度无效: %d", len(tagAndCiphertext))
+		}
 		return "", fmt.Errorf("invalid ciphertext and tag length")
 	}
 
@@ -195,38 +199,50 @@ func aesGcmDecrypt(encryptedHex string) (string, error) {
 	// 创建AES-GCM解密器
 	block, err := aes.NewCipher(aesKey)
 	if err != nil {
-		fmt.Printf("[%s] 创建AES密码失败: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
+		if log != nil {
+			log.Errorf("创建AES密码失败: %v", err)
+		}
 		return "", err
 	}
 
 	aesGcm, err := cipher.NewGCM(block)
 	if err != nil {
-		fmt.Printf("[%s] 创建GCM失败: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
+		if log != nil {
+			log.Errorf("创建GCM失败: %v", err)
+		}
 		return "", err
 	}
 
 	// 解密数据
 	plaintext, err := aesGcm.Open(nil, nonce, append(ciphertext, tag...), nil)
 	if err != nil {
-		fmt.Printf("[%s] 解密失败: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
+		if log != nil {
+			log.Errorf("解密失败: %v", err)
+		}
 		return "", err
 	}
 
-	fmt.Printf("[%s] AES-GCM解密成功\n", time.Now().Format("2006-01-02 15:04:05"))
+	if log != nil {
+		log.Debug("AES-GCM解密成功")
+	}
 	return string(plaintext), nil
 }
 
 // HMAC-SHA256签名验证函数
 func verifySignature(dir, userid, ts, signature string) bool {
-	fmt.Printf("[%s] 开始验证签名 - 用户ID: %s, 时间戳: %s\n", time.Now().Format("2006-01-02 15:04:05"), userid, ts)
-	
+	if log != nil {
+		log.Debugf("开始验证签名 - 用户ID: %s, 时间戳: %s", userid, ts)
+	}
+
 	// 先解密路径以获取原始路径用于签名验证
 	decryptedDir, err := aesGcmDecrypt(dir)
 	if err != nil {
-		fmt.Printf("[%s] 路径解密失败，无法验证签名 - 用户ID: %s, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), userid, err)
+		if log != nil {
+			log.Errorf("路径解密失败，无法验证签名 - 用户ID: %s, 错误: %v", userid, err)
+		}
 		return false
 	}
-	
+
 	// 构造用于签名的消息（使用解密后的路径）
 	message := fmt.Sprintf("dir=%s&userid=%s&ts=%s", decryptedDir, userid, ts)
 
@@ -239,12 +255,16 @@ func verifySignature(dir, userid, ts, signature string) bool {
 	isValid := hmac.Equal([]byte(signature), []byte(expectedSignature))
 
 	if isValid {
-		fmt.Printf("[%s] 签名验证成功 - 用户ID: %s\n", time.Now().Format("2006-01-02 15:04:05"), userid)
+		if log != nil {
+			log.Infof("签名验证成功 - 用户ID: %s", userid)
+		}
 	} else {
-		fmt.Printf("[%s] 签名验证失败 - 用户ID: %s\n", time.Now().Format("2006-01-02 15:04:05"), userid)
-		fmt.Printf("[%s] 用于签名的消息: %s\n", time.Now().Format("2006-01-02 15:04:05"), message)
-		fmt.Printf("[%s] 期望签名: %s\n", time.Now().Format("2006-01-02 15:04:05"), expectedSignature)
-		fmt.Printf("[%s] 实际签名: %s\n", time.Now().Format("2006-01-02 15:04:05"), signature)
+		if log != nil {
+			log.Warnf("签名验证失败 - 用户ID: %s", userid)
+			log.Debugf("用于签名的消息: %s", message)
+			log.Debugf("期望签名: %s", expectedSignature)
+			log.Debugf("实际签名: %s", signature)
+		}
 	}
 
 	return isValid
@@ -258,17 +278,20 @@ func remote(c *gin.Context) {
 	ts := c.Query("ts")
 	signature := c.Query("signature")
 
-	fmt.Printf("[%s] 收到新的流请求 - 客户端IP: %s, 用户ID: %s, 时间戳: %s, 加密路径长度: %d, 签名长度: %d\n",
-		time.Now().Format("2006-01-02 15:04:05"),
-		c.ClientIP(),
-		userid,
-		ts,
-		len(encryptedDir),
-		len(signature))
+	if log != nil {
+		log.Infof("收到新的流请求 - 客户端IP: %s, 用户ID: %s, 时间戳: %s, 加密路径长度: %d, 签名长度: %d",
+			c.ClientIP(),
+			userid,
+			ts,
+			len(encryptedDir),
+			len(signature))
+	}
 
 	// 验证签名（在解密路径之前）
 	if !verifySignature(encryptedDir, userid, ts, signature) {
-		fmt.Printf("[%s] 签名验证失败 - 用户ID: %s, 客户端IP: %s\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP())
+		if log != nil {
+			log.Warnf("签名验证失败 - 用户ID: %s, 客户端IP: %s", userid, c.ClientIP())
+		}
 		c.AbortWithStatus(403)
 		return
 	}
@@ -276,18 +299,24 @@ func remote(c *gin.Context) {
 	// 解密路径（verifySignature函数中已经解密了路径，但为了代码清晰，我们再解密一次）
 	decryptedDir, err := aesGcmDecrypt(encryptedDir)
 	if err != nil {
-		fmt.Printf("[%s] 路径解密失败 - 用户ID: %s, 客户端IP: %s, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), err)
+		if log != nil {
+			log.Errorf("路径解密失败 - 用户ID: %s, 客户端IP: %s, 错误: %v", userid, c.ClientIP(), err)
+		}
 		c.AbortWithStatus(403)
 		return
 	}
 
 	// 构造完整文件路径
 	local_dir := mount_dir + decryptedDir
-	fmt.Printf("[%s] 尝试访问文件 - 用户ID: %s, 客户端IP: %s, 路径: %s\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), local_dir)
+	if log != nil {
+		log.Infof("尝试访问文件 - 用户ID: %s, 客户端IP: %s, 路径: %s", userid, c.ClientIP(), local_dir)
+	}
 
 	file, err := os.Open(local_dir)
 	if err != nil {
-		fmt.Printf("[%s] 文件打开失败 - 用户ID: %s, 客户端IP: %s, 路径: %s, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), local_dir, err)
+		if log != nil {
+			log.Errorf("文件打开失败 - 用户ID: %s, 客户端IP: %s, 路径: %s, 错误: %v", userid, c.ClientIP(), local_dir, err)
+		}
 		c.AbortWithStatus(403)
 		return
 	}
@@ -296,18 +325,24 @@ func remote(c *gin.Context) {
 	// 获取文件信息
 	fileInfo, err := file.Stat()
 	if err != nil {
-		fmt.Printf("[%s] 获取文件信息失败 - 用户ID: %s, 客户端IP: %s, 路径: %s, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), local_dir, err)
+		if log != nil {
+			log.Errorf("获取文件信息失败 - 用户ID: %s, 客户端IP: %s, 路径: %s, 错误: %v", userid, c.ClientIP(), local_dir, err)
+		}
 		c.AbortWithStatus(500)
 		return
 	}
 	fileSize := fileInfo.Size()
-	fmt.Printf("[%s] 文件信息获取成功 - 用户ID: %s, 客户端IP: %s, 路径: %s, 大小: %d bytes\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), local_dir, fileSize)
+	if log != nil {
+		log.Infof("文件信息获取成功 - 用户ID: %s, 客户端IP: %s, 路径: %s, 大小: %d bytes", userid, c.ClientIP(), local_dir, fileSize)
+	}
 
 	// 解析 Range 请求头
 	rangeHeader := c.GetHeader("Range")
 	if rangeHeader == "" {
 		// 如果没有 Range 头，返回整个文件
-		fmt.Printf("[%s] 无Range请求头，返回整个文件 - 用户ID: %s, 客户端IP: %s\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP())
+		if log != nil {
+			log.Infof("无Range请求头，返回整个文件 - 用户ID: %s, 客户端IP: %s", userid, c.ClientIP())
+		}
 		c.Writer.Header().Set("Content-Type", "video/mp4")
 		c.Writer.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
 		c.Status(http.StatusOK)
@@ -320,7 +355,9 @@ func remote(c *gin.Context) {
 	// Range 请求的格式: bytes=START-END
 	ranges := strings.Split(rangeHeader, "=")
 	if len(ranges) != 2 || ranges[0] != "bytes" {
-		fmt.Printf("[%s] Range请求头格式无效 - 用户ID: %s, 客户端IP: %s, Range头: %s\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), rangeHeader)
+		if log != nil {
+			log.Warnf("Range请求头格式无效 - 用户ID: %s, 客户端IP: %s, Range头: %s", userid, c.ClientIP(), rangeHeader)
+		}
 		c.AbortWithStatus(http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
@@ -328,7 +365,9 @@ func remote(c *gin.Context) {
 
 	start, err := strconv.ParseInt(rangeParts[0], 10, 64)
 	if err != nil || start < 0 || start >= fileSize {
-		fmt.Printf("[%s] Range起始位置无效 - 用户ID: %s, 客户端IP: %s, 起始位置: %s, 文件大小: %d\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), rangeParts[0], fileSize)
+		if log != nil {
+			log.Warnf("Range起始位置无效 - 用户ID: %s, 客户端IP: %s, 起始位置: %s, 文件大小: %d", userid, c.ClientIP(), rangeParts[0], fileSize)
+		}
 		c.AbortWithStatus(http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
@@ -337,7 +376,9 @@ func remote(c *gin.Context) {
 	if rangeParts[1] != "" {
 		end, err = strconv.ParseInt(rangeParts[1], 10, 64)
 		if err != nil || end >= fileSize || end < start {
-			fmt.Printf("[%s] Range结束位置无效 - 用户ID: %s, 客户端IP: %s, 结束位置: %s, 起始位置: %d, 文件大小: %d\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), rangeParts[1], start, fileSize)
+			if log != nil {
+				log.Warnf("Range结束位置无效 - 用户ID: %s, 客户端IP: %s, 结束位置: %s, 起始位置: %d, 文件大小: %d", userid, c.ClientIP(), rangeParts[1], start, fileSize)
+			}
 			c.AbortWithStatus(http.StatusRequestedRangeNotSatisfiable)
 			return
 		}
@@ -347,7 +388,9 @@ func remote(c *gin.Context) {
 
 	// 设置响应头信息
 	contentLength := end - start + 1
-	fmt.Printf("[%s] 处理Range请求 - 用户ID: %s, 客户端IP: %s, 范围: %d-%d, 长度: %d\n", time.Now().Format("2006-01-02 15:04:05"), userid, c.ClientIP(), start, end, contentLength)
+	if log != nil {
+		log.Infof("处理Range请求 - 用户ID: %s, 客户端IP: %s, 范围: %d-%d, 长度: %d", userid, c.ClientIP(), start, end, contentLength)
+	}
 	c.Writer.Header().Set("Content-Type", "video/mp4")
 	c.Writer.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
 	c.Writer.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
@@ -359,12 +402,16 @@ func remote(c *gin.Context) {
 
 // 分片传输文件的指定部分
 func streamFile(file *os.File, c *gin.Context, start, end int64) {
-	fmt.Printf("[%s] 开始流式传输文件 - 客户端IP: %s, 范围: %d-%d\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), start, end)
+	if log != nil {
+		log.Infof("开始流式传输文件 - 客户端IP: %s, 范围: %d-%d", c.ClientIP(), start, end)
+	}
 
 	// 移动文件指针到指定位置
 	_, err := file.Seek(start, 0)
 	if err != nil {
-		fmt.Printf("[%s] 文件指针定位失败 - 客户端IP: %s, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), err)
+		if log != nil {
+			log.Errorf("文件指针定位失败 - 客户端IP: %s, 错误: %v", c.ClientIP(), err)
+		}
 		c.AbortWithStatus(500)
 		return
 	}
@@ -375,24 +422,29 @@ func streamFile(file *os.File, c *gin.Context, start, end int64) {
 
 	go func() {
 		defer wg.Done()
-		buffer := bufferPool.Get().(*[]byte)
+		// 修复：正确处理从缓冲池获取的值
+		buffer := bufferPool.Get().([]byte)
 		defer bufferPool.Put(buffer)
 
 		limiter := newRateLimiter(rateLimit)
 		totalBytes := end - start + 1
 		bytesSent := int64(0)
 
-		fmt.Printf("[%s] 开始传输数据 - 客户端IP: %s, 总字节数: %d\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), totalBytes)
+		if log != nil {
+			log.Debugf("开始传输数据 - 客户端IP: %s, 总字节数: %d", c.ClientIP(), totalBytes)
+		}
 
 		for totalBytes > 0 {
-			readSize := int64(len(*buffer))
+			readSize := int64(len(buffer))
 			if totalBytes < readSize {
 				readSize = totalBytes
 			}
 
-			n, err := file.Read((*buffer)[:readSize])
+			n, err := file.Read(buffer[:readSize])
 			if err != nil && err != io.EOF {
-				fmt.Printf("[%s] 文件读取错误 - 客户端IP: %s, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), err)
+				if log != nil {
+					log.Errorf("文件读取错误 - 客户端IP: %s, 错误: %v", c.ClientIP(), err)
+				}
 				c.AbortWithStatus(500)
 				return
 			}
@@ -403,10 +455,12 @@ func streamFile(file *os.File, c *gin.Context, start, end int64) {
 
 			limiter.limit(n) // 应用速率限制
 
-			_, writeErr := c.Writer.Write((*buffer)[:n])
+			_, writeErr := c.Writer.Write(buffer[:n])
 			if writeErr != nil {
 				// 如果客户端断开连接
-				fmt.Printf("[%s] 客户端连接断开 - 客户端IP: %s, 已发送字节: %d, 错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), bytesSent, writeErr)
+				if log != nil {
+					log.Warnf("客户端连接断开 - 客户端IP: %s, 已发送字节: %d, 错误: %v", c.ClientIP(), bytesSent, writeErr)
+				}
 				return
 			}
 
@@ -415,7 +469,9 @@ func streamFile(file *os.File, c *gin.Context, start, end int64) {
 			bytesSent += int64(n)
 		}
 
-		fmt.Printf("[%s] 文件传输完成 - 客户端IP: %s, 总发送字节: %d\n", time.Now().Format("2006-01-02 15:04:05"), c.ClientIP(), bytesSent)
+		if log != nil {
+			log.Infof("文件传输完成 - 客户端IP: %s, 总发送字节: %d", c.ClientIP(), bytesSent)
+		}
 	}()
 
 	wg.Wait()
@@ -435,21 +491,75 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
+// 自定义Gin日志中间件，使用logrus记录日志
+func ginLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 开始时间
+		startTime := time.Now()
+
+		// 处理请求
+		c.Next()
+
+		// 结束时间
+		endTime := time.Now()
+
+		// 执行时间
+		latencyTime := endTime.Sub(startTime)
+
+		// 请求方式
+		reqMethod := c.Request.Method
+
+		// 请求路由
+		reqUri := c.Request.RequestURI
+
+		// 状态码
+		statusCode := c.Writer.Status()
+
+		// 请求IP
+		clientIP := c.ClientIP()
+
+		// 从查询参数中获取userid
+		userid := c.Query("userid")
+		if userid == "" {
+			userid = "unknown"
+		}
+
+		// 日志格式
+		if log != nil {
+			log.Infof("[GIN] %16v | %3d | %13v | %15s | %8s | %s | %s",
+				endTime.Format("2006-01-02 15:04:05.123"),
+				statusCode,
+				latencyTime,
+				clientIP,
+				userid,
+				reqMethod,
+				reqUri,
+			)
+		}
+	}
+}
+
 func main() {
+	// 创建一个临时的日志记录器用于初始化阶段
+	tempLogger := logrus.New()
+	tempLogger.SetFormatter(&logrus.TextFormatter{
+		TimestampFormat: "2006-01-02 15:04:05",
+		FullTimestamp:   true,
+	})
+
 	// 读取配置文件
 	args := os.Args[1:]
 	if len(args) == 0 {
-		fmt.Println("[", time.Now().Format("2006-01-02 15:04:05"), "] 请提供配置文件作为参数")
+		tempLogger.Error("请提供配置文件作为参数")
 		return
 	}
 	configFile := args[0]
 
-	fmt.Printf("[%s] 正在加载配置文件: %s\n", time.Now().Format("2006-01-02 15:04:05"), configFile)
+	tempLogger.Infof("正在加载配置文件: %s", configFile)
 	viper.SetConfigType("yaml")
 	viper.SetConfigFile(configFile)
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("[%s] 读取配置文件错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
-		fmt.Println("Error reading config file:", err)
+		tempLogger.Errorf("读取配置文件错误: %v", err)
 		return
 	}
 
@@ -457,7 +567,7 @@ func main() {
 	mount_dir = viper.GetString("mount.dir")
 	port = viper.GetString("server.port")
 
-	fmt.Printf("[%s] 配置已加载 - 挂载目录: %s, 端口: %s\n", time.Now().Format("2006-01-02 15:04:05"), mount_dir, port)
+	tempLogger.Infof("配置已加载 - 挂载目录: %s, 端口: %s", mount_dir, port)
 
 	// 读取新的安全配置
 	aesKeyHex := viper.GetString("security.aes_key")
@@ -467,19 +577,17 @@ func main() {
 	var err error
 	aesKey, err = hex.DecodeString(aesKeyHex)
 	if err != nil {
-		fmt.Printf("[%s] AES密钥解码错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
-		fmt.Println("Error decoding AES key:", err)
+		tempLogger.Errorf("AES密钥解码错误: %v", err)
 		return
 	}
 
 	hmacSecret, err = hex.DecodeString(hmacSecretHex)
 	if err != nil {
-		fmt.Printf("[%s] HMAC密钥解码错误: %v\n", time.Now().Format("2006-01-02 15:04:05"), err)
-		fmt.Println("Error decoding HMAC secret:", err)
+		tempLogger.Errorf("HMAC密钥解码错误: %v", err)
 		return
 	}
 
-	fmt.Printf("[%s] 安全配置已加载\n", time.Now().Format("2006-01-02 15:04:05"))
+	tempLogger.Info("安全配置已加载")
 
 	// 读取速率限制，如果未设置则使用默认值
 	if !viper.IsSet("server.rateLimit") {
@@ -488,7 +596,25 @@ func main() {
 		rateLimit = viper.GetInt64("server.rateLimit")
 	}
 
-	fmt.Printf("[%s] 速率限制设置为: %d Mbps\n", time.Now().Format("2006-01-02 15:04:05"), rateLimit)
+	tempLogger.Infof("速率限制设置为: %d Mbps", rateLimit)
+
+	// 初始化日志系统
+	logConfig := logger.Config{
+		Level:      viper.GetString("log.level"),
+		File:       viper.GetString("log.file"),
+		MaxSize:    viper.GetInt("log.maxSize"),
+		MaxBackups: viper.GetInt("log.maxBackups"),
+		MaxAge:     viper.GetInt("log.maxAge"),
+		Compress:   viper.GetBool("log.compress"),
+	}
+
+	log, err = logger.New(logConfig)
+	if err != nil {
+		tempLogger.Errorf("日志系统初始化失败: %v", err)
+		return
+	}
+
+	log.Info("日志系统初始化完成")
 
 	// Start the background goroutine to clean up old visitors.
 	go cleanupVisitors()
@@ -498,7 +624,7 @@ func main() {
 	r := gin.New()
 
 	// 使用自定义的日志格式
-	r.Use(gin.LoggerWithFormatter(logFormat))
+	r.Use(ginLogger())
 	r.Use(gin.Recovery())
 
 	// Trust all proxies by default. This is needed to get the correct
@@ -516,11 +642,11 @@ func main() {
 
 	// 添加 NoRoute 处理器，处理所有未定义的路由
 	r.NoRoute(func(c *gin.Context) {
-		fmt.Printf("[%s] 访问了未定义的路由: %s\n", time.Now().Format("2006-01-02 15:04:05"), c.Request.URL.Path)
+		log.Warnf("访问了未定义的路由: %s", c.Request.URL.Path)
 		c.AbortWithStatus(403)
 	})
 
-	fmt.Printf("[%s] 服务启动中，监听端口: %s\n", time.Now().Format("2006-01-02 15:04:05"), port)
+	log.Infof("服务启动中，监听端口: %s", port)
 	// 启动服务，监听指定端口
 	r.Run(":" + port)
 }

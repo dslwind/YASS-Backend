@@ -7,7 +7,7 @@ mount:
 # 服务器配置
 server:
   port: "12180"      # 服务监听端口
-  rateLimit: 250     # 带宽限制 (Mbps)
+  rateLimit: 100     # 带宽限制 (Mbps)
 
 # 安全配置
 security:
@@ -18,3 +18,12 @@ security:
   # HMAC密钥：有效的十六进制字符串
   # 可以使用以下命令生成：openssl rand -hex 32
   hmac_secret_key: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+# 日志配置
+log:
+  level: "info"           # 日志级别: trace, debug, info, warn, error, fatal, panic
+  file: "logs/app.log"    # 日志文件路径
+  maxSize: 10             # 每个日志文件的最大大小(MB)
+  maxBackups: 5           # 保留的旧日志文件最大个数
+  maxAge: 30              # 保留旧日志文件的最大天数
+  compress: true          # 是否压缩旧日志文件

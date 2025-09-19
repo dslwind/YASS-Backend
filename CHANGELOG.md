@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- 集成logrus日志库，替换原有简单日志实现
+- 添加日志文件写入功能，支持同时输出到控制台和文件
+- 实现日志轮转功能，基于文件大小自动创建新日志文件
+- 添加日志压缩功能，可配置是否对旧日志文件进行压缩
+- 实现日志级别控制，在配置文件中可配置日志级别
+- Gin框架日志集成，使用logrus统一输出HTTP请求日志
+- 在Gin日志中添加userid字段，便于用户请求跟踪
+
+### Changed
+- 重构日志系统，使用专门的日志包管理日志配置和输出
+- 更新配置文件结构，添加日志相关配置项
+- 修改Gin日志格式，将userid插入到客户端IP和HTTP请求方式之间
+
 ## [1.1.0] - 2025-09-18
 
 ### Added
