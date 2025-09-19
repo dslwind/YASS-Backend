@@ -8,6 +8,12 @@ mount:
 server:
   port: "12180"      # 服务监听端口
   rateLimit: 100     # 带宽限制 (Mbps)
+  # 请求频率限制配置
+  requestLimit:
+    requestsPerSecond: 2    # 每秒请求数限制
+    burstSize: 10           # 突发请求大小
+    cleanupInterval: 10     # 清理间隔（分钟）
+    expireDuration: 15      # 过期时间（分钟）
 
 # 安全配置
 security:

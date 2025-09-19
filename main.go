@@ -23,9 +23,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Add this after the imports
+// 在导入之后添加此代码
 const (
-	DefaultRateLimit int64 = 250 // Default rate limit in Mbps
+	DefaultRateLimit int64 = 250 // 默认速率限制为250 Mbps
 )
 
 // 定义全局的缓冲池
@@ -47,47 +47,44 @@ var (
 
 	// 全局日志实例
 	log *logger.Logger
+
+	// 请求频率限制配置
+	requestsPerSecond rate.Limit
+	burstSize         int
+	cleanupInterval   time.Duration
+	expireDuration    time.Duration
 )
 
-// ---- START: New code for Request Frequency Limiting ----
+// ---- START: 请求频率限制新代码 ----
 
-// visitor struct holds the rate limiter and last seen time for each client.
+// 访问者结构体，为每个客户端保存速率限制器和最后访问时间
 type visitor struct {
 	limiter  *rate.Limiter
 	lastSeen time.Time
 }
 
-// Global map to store visitors' rate limiters.
-// The key is the client's IP address.
+// 全局映射，存储访问者的速率限制器
+// 键是客户端的IP地址
 var visitors = make(map[string]*visitor)
 var visitorsMu sync.Mutex
 
-// requestLimitMiddleware provides rate limiting based on IP address.
+// 请求频率限制中间件，基于IP地址提供速率限制
 func requestLimitMiddleware() gin.HandlerFunc {
-	// These values can be moved to the config file if more flexibility is needed.
-	// r: requests per second.
-	// b: burst size.
-	// Here we allow 2 requests per second with a burst of 10.
-	// This is suitable for streaming where a client might make several quick requests
-	// at the beginning, but prevents sustained high-frequency requests.
-	r := rate.Limit(2)
-	b := 10
-
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 
 		visitorsMu.Lock()
 		v, exists := visitors[ip]
 		if !exists {
-			limiter := rate.NewLimiter(r, b)
+			limiter := rate.NewLimiter(requestsPerSecond, burstSize)
 			v = &visitor{limiter: limiter}
 			visitors[ip] = v
 		}
-		// Update the last seen time for the visitor on every request.
+		// 更新访问者的最后访问时间
 		v.lastSeen = time.Now()
 		visitorsMu.Unlock()
 
-		// Check if the request is allowed. If not, abort with a 429 status.
+		// 检查请求是否被允许，如果不允许则返回429状态码
 		if !v.limiter.Allow() {
 			c.AbortWithStatus(http.StatusTooManyRequests)
 			if log != nil {
@@ -100,17 +97,17 @@ func requestLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
-// cleanupVisitors runs in a background goroutine to remove old entries
-// from the visitors map, preventing a memory leak.
+// cleanupVisitors 在后台goroutine中运行，用于清理访问者映射中的旧条目
+// 防止内存泄漏
 func cleanupVisitors() {
 	for {
-		// Wait for a while before the next cleanup cycle.
-		time.Sleep(10 * time.Minute)
+		// 等待一段时间后进行下一次清理循环
+		time.Sleep(cleanupInterval)
 
 		visitorsMu.Lock()
 		for ip, v := range visitors {
-			// If a visitor hasn't been seen for 15 minutes, remove them from the map.
-			if time.Since(v.lastSeen) > 15*time.Minute {
+			// 如果访问者在过期时间内未被访问，则从映射中删除
+			if time.Since(v.lastSeen) > expireDuration {
 				delete(visitors, ip)
 			}
 		}
@@ -118,9 +115,9 @@ func cleanupVisitors() {
 	}
 }
 
-// ---- END: New code for Request Frequency Limiting ----
+// ---- END: 请求频率限制新代码 ----
 
-// 速率限制器 (This is for bandwidth limiting)
+// 速率限制器 (用于带宽限制)
 type rateLimiter struct {
 	bytesPerSecond int64
 	lastCheck      time.Time
@@ -352,7 +349,7 @@ func remote(c *gin.Context) {
 		return
 	}
 
-	// Range 请求的格式: bytes=START-END
+	// Range 请求的格式：bytes=起始位置-结束位置
 	ranges := strings.Split(rangeHeader, "=")
 	if len(ranges) != 2 || ranges[0] != "bytes" {
 		if log != nil {
@@ -527,7 +524,7 @@ func ginLogger() gin.HandlerFunc {
 		// 日志格式
 		if log != nil {
 			log.Infof("[GIN] %16v | %3d | %13v | %15s | %8s | %s | %s",
-				endTime.Format("2006-01-02 15:04:05.123"),
+				endTime.Format("2006-01-02 15:04:05.000"),
 				statusCode,
 				latencyTime,
 				clientIP,
@@ -598,6 +595,23 @@ func main() {
 
 	tempLogger.Infof("速率限制设置为: %d Mbps", rateLimit)
 
+	// 读取请求频率限制配置
+	if viper.IsSet("server.requestLimit") {
+		requestsPerSecond = rate.Limit(viper.GetFloat64("server.requestLimit.requestsPerSecond"))
+		burstSize = viper.GetInt("server.requestLimit.burstSize")
+		cleanupInterval = time.Duration(viper.GetInt("server.requestLimit.cleanupInterval")) * time.Minute
+		expireDuration = time.Duration(viper.GetInt("server.requestLimit.expireDuration")) * time.Minute
+	} else {
+		// 默认值
+		requestsPerSecond = 2
+		burstSize = 10
+		cleanupInterval = 10 * time.Minute
+		expireDuration = 15 * time.Minute
+	}
+
+	tempLogger.Infof("请求频率限制配置 - 每秒请求数: %f, 突发大小: %d, 清理间隔: %v, 过期时间: %v",
+		float64(requestsPerSecond), burstSize, cleanupInterval, expireDuration)
+
 	// 初始化日志系统
 	logConfig := logger.Config{
 		Level:      viper.GetString("log.level"),
@@ -616,7 +630,7 @@ func main() {
 
 	log.Info("日志系统初始化完成")
 
-	// Start the background goroutine to clean up old visitors.
+	// 启动后台goroutine以清理旧的访问者记录
 	go cleanupVisitors()
 
 	// 初始化 Gin 引擎
@@ -627,14 +641,14 @@ func main() {
 	r.Use(ginLogger())
 	r.Use(gin.Recovery())
 
-	// Trust all proxies by default. This is needed to get the correct
-	// client IP when running behind a reverse proxy like Nginx.
+	// 默认信任所有代理。这是为了在反向代理（如Nginx）环境下获取正确的
+	// 客户端IP地址。
 	r.SetTrustedProxies(nil)
 
 	// 添加跨域中间件
 	r.Use(corsMiddleware())
 
-	// Add the request rate limiting middleware to all routes.
+	// 将请求频率限制中间件添加到所有路由中。
 	r.Use(requestLimitMiddleware())
 
 	// 设置路由和文件流传输处理

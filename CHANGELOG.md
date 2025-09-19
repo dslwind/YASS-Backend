@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 重构日志系统，使用专门的日志包管理日志配置和输出
 - 更新配置文件结构，添加日志相关配置项
 - 修改Gin日志格式，将userid插入到客户端IP和HTTP请求方式之间
+- 将请求频率限制配置从代码硬编码迁移到配置文件中，支持动态配置
+- 优化代码注释，统一使用中文注释
 
 ## [1.1.0] - 2025-09-18
 
