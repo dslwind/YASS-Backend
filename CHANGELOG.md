@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 实现日志级别控制，在配置文件中可配置日志级别
 - Gin框架日志集成，使用logrus统一输出HTTP请求日志
 - 在Gin日志中添加userid字段，便于用户请求跟踪
+- 签名有效期验证功能，防止重放攻击
 
 ### Changed
 - 重构日志系统，使用专门的日志包管理日志配置和输出
@@ -22,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修改Gin日志格式，将userid插入到客户端IP和HTTP请求方式之间
 - 将请求频率限制配置从代码硬编码迁移到配置文件中，支持动态配置
 - 优化代码注释，统一使用中文注释
+- 将时间窗口重命名为签名有效时间，增强语义清晰度
+
+### Fixed
+- 签名验证函数逻辑错误，确保使用正确的路径进行签名验证
 
 ## [1.1.0] - 2025-09-18
 

@@ -24,6 +24,9 @@ security:
   # HMAC密钥：有效的十六进制字符串
   # 可以使用以下命令生成：openssl rand -hex 32
   hmac_secret_key: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+  
+  # 签名有效时间（秒）：防止重放攻击的时间窗口，默认300秒（5分钟）
+  signatureValidityPeriod: 300
 
 # 日志配置
 log:

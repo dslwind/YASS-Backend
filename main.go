@@ -23,7 +23,6 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// 在导入之后添加此代码
 const (
 	DefaultRateLimit int64 = 250 // 默认速率限制为250 Mbps
 )
@@ -53,9 +52,12 @@ var (
 	burstSize         int
 	cleanupInterval   time.Duration
 	expireDuration    time.Duration
+
+	// 签名有效时间配置（防止重放攻击）
+	signatureValidityPeriod int64
 )
 
-// ---- START: 请求频率限制新代码 ----
+// ---- START: 请求频率限制 ----
 
 // 访问者结构体，为每个客户端保存速率限制器和最后访问时间
 type visitor struct {
@@ -115,7 +117,7 @@ func cleanupVisitors() {
 	}
 }
 
-// ---- END: 请求频率限制新代码 ----
+// ---- END: 请求频率限制 ----
 
 // 速率限制器 (用于带宽限制)
 type rateLimiter struct {
@@ -229,6 +231,24 @@ func aesGcmDecrypt(encryptedHex string) (string, error) {
 func verifySignature(dir, userid, ts, signature string) bool {
 	if log != nil {
 		log.Debugf("开始验证签名 - 用户ID: %s, 时间戳: %s", userid, ts)
+	}
+
+	// 验证时间戳有效性，防止重放攻击
+	timestamp, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		if log != nil {
+			log.Warnf("时间戳格式无效 - 用户ID: %s, 时间戳: %s", userid, ts)
+		}
+		return false
+	}
+
+	// 检查时间戳是否在配置的签名有效期内
+	now := time.Now().Unix()
+	if now-timestamp > signatureValidityPeriod || timestamp-now > signatureValidityPeriod {
+		if log != nil {
+			log.Warnf("时间戳超出签名有效期 - 用户ID: %s, 时间戳: %s, 当前时间: %d, 有效期: %d秒", userid, ts, now, signatureValidityPeriod)
+		}
+		return false
 	}
 
 	// 先解密路径以获取原始路径用于签名验证
@@ -611,6 +631,15 @@ func main() {
 
 	tempLogger.Infof("请求频率限制配置 - 每秒请求数: %f, 突发大小: %d, 清理间隔: %v, 过期时间: %v",
 		float64(requestsPerSecond), burstSize, cleanupInterval, expireDuration)
+
+	// 读取签名有效时间配置（防止重放攻击），默认值为300秒（5分钟）
+	if !viper.IsSet("security.signatureValidityPeriod") {
+		signatureValidityPeriod = 300
+	} else {
+		signatureValidityPeriod = viper.GetInt64("security.signatureValidityPeriod")
+	}
+
+	tempLogger.Infof("签名有效期设置为: %d 秒", signatureValidityPeriod)
 
 	// 初始化日志系统
 	logConfig := logger.Config{
